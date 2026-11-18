@@ -1,0 +1,151 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EXNOVA ROBO V17</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;background:#10151f;color:#fff;
+ font-family:Arial,sans-serif;padding:18px
+}
+header{text-align:center;padding:18px 5px}
+h1{color:#36d399;font-size:25px}
+.card{
+ background:#1b2636;padding:16px;
+ border-radius:12px;margin:14px 0
+}
+small{color:#aab6c5}
+.status{color:#facc15;font-weight:bold}
+textarea{
+ width:100%;height:95px;background:#10151f;
+ color:#fff;border:1px solid #46566c;
+ border-radius:8px;padding:12px;margin-top:10px
+}
+button{
+ width:100%;padding:14px;margin-top:12px;
+ border:0;border-radius:8px;
+ background:#16a36a;color:white;
+ font-weight:bold;font-size:16px
+}
+.metric{font-size:22px;font-weight:bold;color:#36d399}
+</style>
+</head>
+<body>
+
+<header>
+<h1>EXNOVA ROBÔ V17</h1>
+<p>Motor de análise estratégica</p>
+<span class="status" id="status">AGUARDANDO DADOS</span>
+</header>
+
+<div class="card">
+<h3>Configuração</h3>
+<p>Ativo: <b>EUR/USD OTC</b></p>
+<p>Execução: <b>M1</b></p>
+<p>Confirmação: <b>M5</b></p>
+<p>EMA: 9 / 21</p>
+<p>RSI: 14</p>
+</div>
+
+<div class="card">
+<h3>Dados das velas M1</h3>
+<small>Cole os preços de fechamento em formato JSON.</small>
+<textarea id="m1" placeholder="[1.1001,1.1002,1.1003,...]"></textarea>
+</div>
+
+<div class="card">
+<h3>Dados das velas M5</h3>
+<small>Cole os preços de fechamento em formato JSON.</small>
+<textarea id="m5" placeholder="[1.1001,1.1002,1.1003,...]"></textarea>
+</div>
+
+<button onclick="analisar()">ANALISAR MERCADO</button>
+
+<div class="card">
+<h3>Motor de cálculo</h3>
+<p>EMA 9: <span class="metric" id="ema9">--</span></p>
+<p>EMA 21: <span class="metric" id="ema21">--</span></p>
+<p>RSI 14: <span class="metric" id="rsi">--</span></p>
+<p>M5: <span class="metric" id="confirmacao">--</span></p>
+</div>
+
+<div class="card">
+<h3>Central de sinais</h3>
+<p id="sinal">Aguardando análise.</p>
+<small>Os sinais oficiais dependem da implementação e validação das regras completas da V17.9.</small>
+</div>
+
+<script>
+function ema(valores,periodo){
+ if(valores.length<periodo)return null;
+ let k=2/(periodo+1);
+ let resultado=valores.slice(0,periodo)
+ .reduce((a,b)=>a+b,0)/periodo;
+ for(let i=periodo;i<valores.length;i++){
+ resultado=valores[i]*k+resultado*(1-k);
+ }
+ return resultado;
+}
+
+function rsi(valores,periodo=14){
+ if(valores.length<=periodo)return null;
+ let ganhos=0,perdas=0;
+ for(let i=1;i<=periodo;i++){
+ let d=valores[i]-valores[i-1];
+ if(d>0)ganhos+=d;
+ else perdas-=d;
+ }
+ let ag=ganhos/periodo;
+ let ap=perdas/periodo;
+ for(let i=periodo+1;i<valores.length;i++){
+ let d=valores[i]-valores[i-1];
+ ag=(ag*(periodo-1)+Math.max(d,0))/periodo;
+ ap=(ap*(periodo-1)+Math.max(-d,0))/periodo;
+ }
+ if(ap===0)return 100;
+ return 100-(100/(1+ag/ap));
+}
+
+function analisar(){
+ try{
+ let m1=JSON.parse(document.getElementById("m1").value);
+ let m5=JSON.parse(document.getElementById("m5").value);
+
+ if(!Array.isArray(m1)||!m1.every(Number.isFinite))
+ throw Error("Dados M1 inválidos.");
+
+ if(!Array.isArray(m5)||!m5.every(Number.isFinite))
+ throw Error("Dados M5 inválidos.");
+
+ if(m1.length<22||m5.length<22)
+ throw Error("São necessárias pelo menos 22 velas em cada período.");
+
+ let e9=ema(m1,9);
+ let e21=ema(m1,21);
+ let r=rsi(m1);
+ let e9m5=ema(m5,9);
+ let e21m5=ema(m5,21);
+
+ document.getElementById("ema9").textContent=e9.toFixed(6);
+ document.getElementById("ema21").textContent=e21.toFixed(6);
+ document.getElementById("rsi").textContent=r.toFixed(2);
+
+ document.getElementById("confirmacao").textContent=
+ e9m5>e21m5?"EMA9 acima da EMA21":
+ e9m5<e21m5?"EMA9 abaixo da EMA21":"Neutro";
+
+ document.getElementById("status").textContent="CÁLCULO CONCLUÍDO";
+ document.getElementById("sinal").textContent=
+ "Indicadores calculados. Aguardando validação das regras estratégicas.";
+ }catch(e){
+ document.getElementById("status").textContent="ERRO NOS DADOS";
+ document.getElementById("sinal").textContent=e.message;
+ }
+}
+</script>
+</body>
+</html>
+  
