@@ -3,42 +3,27 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EXNOVA ROBO V17</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EXNOVA ROBÔ V17.9</title>
 <style>
 *{box-sizing:border-box}
-body{
- margin:0;background:#10151f;color:#fff;
- font-family:Arial,sans-serif;padding:18px
-}
-header{text-align:center;padding:18px 5px}
-h1{color:#36d399;font-size:25px}
-.card{
- background:#1b2636;padding:16px;
- border-radius:12px;margin:14px 0
-}
+body{margin:0;padding:16px;background:#10151f;color:#fff;font-family:Arial}
+header{text-align:center;padding:15px}
+h1{color:#36d399}
+.card{background:#1b2636;padding:16px;border-radius:12px;margin:14px 0}
+textarea{width:100%;height:130px;background:#10151f;color:white;border:1px solid #526078;border-radius:8px;padding:10px}
+button{width:100%;padding:15px;background:#16a36a;color:white;border:0;border-radius:8px;font-weight:bold;font-size:16px;margin-top:12px}
+.metric{font-size:20px;color:#36d399;font-weight:bold}
+#signal{font-size:20px;font-weight:bold}
 small{color:#aab6c5}
-.status{color:#facc15;font-weight:bold}
-textarea{
- width:100%;height:95px;background:#10151f;
- color:#fff;border:1px solid #46566c;
- border-radius:8px;padding:12px;margin-top:10px
-}
-button{
- width:100%;padding:14px;margin-top:12px;
- border:0;border-radius:8px;
- background:#16a36a;color:white;
- font-weight:bold;font-size:16px
-}
-.metric{font-size:22px;font-weight:bold;color:#36d399}
 </style>
 </head>
 <body>
 
 <header>
-<h1>EXNOVA ROBÔ V17</h1>
-<p>Motor de análise estratégica</p>
-<span class="status" id="status">AGUARDANDO DADOS</span>
+<h1>EXNOVA ROBÔ V17.9</h1>
+<p>Motor estratégico</p>
+<p id="status">AGUARDANDO DADOS</p>
 </header>
 
 <div class="card">
@@ -46,106 +31,166 @@ button{
 <p>Ativo: <b>EUR/USD OTC</b></p>
 <p>Execução: <b>M1</b></p>
 <p>Confirmação: <b>M5</b></p>
-<p>EMA: 9 / 21</p>
-<p>RSI: 14</p>
+<p>EMA 9 / EMA 21 / RSI 14</p>
+<p>Pré-alertas originais: 3 velas</p>
+<p>Pré-alertas estratégicos: 5 velas</p>
 </div>
 
 <div class="card">
-<h3>Dados das velas M1</h3>
-<small>Cole os preços de fechamento em formato JSON.</small>
-<textarea id="m1" placeholder="[1.1001,1.1002,1.1003,...]"></textarea>
+<h3>Velas M1</h3>
+<small>Insira uma lista JSON, da vela mais antiga para a mais recente.</small>
+<textarea id="m1" placeholder='[{"open":1.1,"high":1.101,"low":1.099,"close":1.1005}]'></textarea>
 </div>
 
 <div class="card">
-<h3>Dados das velas M5</h3>
-<small>Cole os preços de fechamento em formato JSON.</small>
-<textarea id="m5" placeholder="[1.1001,1.1002,1.1003,...]"></textarea>
+<h3>Velas M5</h3>
+<small>Insira os dados no mesmo formato.</small>
+<textarea id="m5" placeholder='[{"open":1.1,"high":1.101,"low":1.099,"close":1.1005}]'></textarea>
 </div>
 
 <button onclick="analisar()">ANALISAR MERCADO</button>
 
 <div class="card">
-<h3>Motor de cálculo</h3>
-<p>EMA 9: <span class="metric" id="ema9">--</span></p>
-<p>EMA 21: <span class="metric" id="ema21">--</span></p>
-<p>RSI 14: <span class="metric" id="rsi">--</span></p>
-<p>M5: <span class="metric" id="confirmacao">--</span></p>
+<h3>Indicadores M1</h3>
+<p>EMA 9: <span id="ema9" class="metric">--</span></p>
+<p>EMA 21: <span id="ema21" class="metric">--</span></p>
+<p>RSI 14: <span id="rsi" class="metric">--</span></p>
+</div>
+
+<div class="card">
+<h3>Confirmação M5</h3>
+<p id="trend" class="metric">--</p>
 </div>
 
 <div class="card">
 <h3>Central de sinais</h3>
-<p id="sinal">Aguardando análise.</p>
-<small>Os sinais oficiais dependem da implementação e validação das regras completas da V17.9.</small>
+<p id="signal">AGUARDANDO DADOS</p>
+<div id="details"></div>
 </div>
 
 <script>
-function ema(valores,periodo){
- if(valores.length<periodo)return null;
- let k=2/(periodo+1);
- let resultado=valores.slice(0,periodo)
- .reduce((a,b)=>a+b,0)/periodo;
- for(let i=periodo;i<valores.length;i++){
- resultado=valores[i]*k+resultado*(1-k);
+function emaSeries(values,period){
+ let out=Array(values.length).fill(null);
+ if(values.length<period)return out;
+ let sum=0;
+ for(let i=0;i<period;i++)sum+=values[i];
+ let e=sum/period;
+ out[period-1]=e;
+ let k=2/(period+1);
+ for(let i=period;i<values.length;i++){
+  e=values[i]*k+e*(1-k);
+  out[i]=e;
  }
- return resultado;
+ return out;
 }
 
-function rsi(valores,periodo=14){
- if(valores.length<=periodo)return null;
- let ganhos=0,perdas=0;
- for(let i=1;i<=periodo;i++){
- let d=valores[i]-valores[i-1];
- if(d>0)ganhos+=d;
- else perdas-=d;
+function rsiSeries(values,period=14){
+ let out=Array(values.length).fill(null);
+ if(values.length<=period)return out;
+ let gain=0,loss=0;
+ for(let i=1;i<=period;i++){
+  let d=values[i]-values[i-1];
+  gain+=Math.max(d,0);
+  loss+=Math.max(-d,0);
  }
- let ag=ganhos/periodo;
- let ap=perdas/periodo;
- for(let i=periodo+1;i<valores.length;i++){
- let d=valores[i]-valores[i-1];
- ag=(ag*(periodo-1)+Math.max(d,0))/periodo;
- ap=(ap*(periodo-1)+Math.max(-d,0))/periodo;
+ let ag=gain/period,al=loss/period;
+ out[period]=al===0?100:100-100/(1+ag/al);
+ for(let i=period+1;i<values.length;i++){
+  let d=values[i]-values[i-1];
+  ag=(ag*(period-1)+Math.max(d,0))/period;
+  al=(al*(period-1)+Math.max(-d,0))/period;
+  out[i]=al===0?100:100-100/(1+ag/al);
  }
- if(ap===0)return 100;
- return 100-(100/(1+ag/ap));
+ return out;
+}
+
+function validar(data){
+ if(!Array.isArray(data))throw Error("Os dados devem ser uma lista JSON.");
+ if(data.length<22)throw Error("Insira pelo menos 22 velas.");
+ for(let c of data){
+  for(let k of ["open","high","low","close"]){
+   if(typeof c[k]!=="number"||!Number.isFinite(c[k]))
+    throw Error("Cada vela precisa de open, high, low e close numéricos.");
+  }
+  if(c.high<Math.max(c.open,c.close)||
+     c.low>Math.min(c.open,c.close)||
+     c.high<c.low)throw Error("Existem valores OHLC inconsistentes.");
+ }
 }
 
 function analisar(){
  try{
- let m1=JSON.parse(document.getElementById("m1").value);
- let m5=JSON.parse(document.getElementById("m5").value);
+  let m1=JSON.parse(document.getElementById("m1").value);
+  let m5=JSON.parse(document.getElementById("m5").value);
+  validar(m1);
+  validar(m5);
 
- if(!Array.isArray(m1)||!m1.every(Number.isFinite))
- throw Error("Dados M1 inválidos.");
+  let closes1=m1.map(c=>c.close);
+  let closes5=m5.map(c=>c.close);
 
- if(!Array.isArray(m5)||!m5.every(Number.isFinite))
- throw Error("Dados M5 inválidos.");
+  let e9=emaSeries(closes1,9);
+  let e21=emaSeries(closes1,21);
+  let r=rsiSeries(closes1);
+  let e21m5=emaSeries(closes5,21);
 
- if(m1.length<22||m5.length<22)
- throw Error("São necessárias pelo menos 22 velas em cada período.");
+  let i=m1.length-1;
+  let j=m5.length-1;
 
- let e9=ema(m1,9);
- let e21=ema(m1,21);
- let r=rsi(m1);
- let e9m5=ema(m5,9);
- let e21m5=ema(m5,21);
+  if(e9[i]===null||e21[i]===null||r[i]===null||
+     e21m5[j-2]===null)
+   throw Error("Histórico insuficiente para os indicadores.");
 
- document.getElementById("ema9").textContent=e9.toFixed(6);
- document.getElementById("ema21").textContent=e21.toFixed(6);
- document.getElementById("rsi").textContent=r.toFixed(2);
+  let callTrend=
+   closes5[j-1]>e21m5[j-1]&&
+   e21m5[j-1]>e21m5[j-2];
 
- document.getElementById("confirmacao").textContent=
- e9m5>e21m5?"EMA9 acima da EMA21":
- e9m5<e21m5?"EMA9 abaixo da EMA21":"Neutro";
+  let putTrend=
+   closes5[j-1]<e21m5[j-1]&&
+   e21m5[j-1]<e21m5[j-2];
 
- document.getElementById("status").textContent="CÁLCULO CONCLUÍDO";
- document.getElementById("sinal").textContent=
- "Indicadores calculados. Aguardando validação das regras estratégicas.";
- }catch(e){
- document.getElementById("status").textContent="ERRO NOS DADOS";
- document.getElementById("sinal").textContent=e.message;
+  let call=
+   callTrend&&m1[i].close>m1[i].open&&
+   m1[i].close>e9[i]&&e9[i]>e21[i]&&r[i]>52;
+
+  let put=
+   putTrend&&m1[i].close<m1[i].open&&
+   m1[i].close<e9[i]&&e9[i]<e21[i]&&r[i]<48;
+
+  let preCall=
+   callTrend&&e9[i]>e21[i]&&
+   r[i]>=45&&r[i]<=52&&!call;
+
+  let prePut=
+   putTrend&&e9[i]<e21[i]&&
+   r[i]>=48&&r[i]<=55&&!put;
+
+  document.getElementById("ema9").textContent=e9[i].toFixed(6);
+  document.getElementById("ema21").textContent=e21[i].toFixed(6);
+  document.getElementById("rsi").textContent=r[i].toFixed(2);
+
+  document.getElementById("trend").textContent=
+   callTrend?"TENDÊNCIA DE ALTA":
+   putTrend?"TENDÊNCIA DE BAIXA":"SEM TENDÊNCIA CONFIRMADA";
+
+  let signals=[];
+  if(call)signals.push("CALL CONFIRMADO");
+  if(put)signals.push("PUT CONFIRMADO");
+  if(preCall)signals.push("PRÉ-CALL ORIGINAL AZUL");
+  if(prePut)signals.push("PRÉ-PUT ORIGINAL ROXO");
+
+  document.getElementById("signal").textContent=
+   signals.length?signals.join(" | "):"SEM SINAL NESTA VELA";
+
+  document.getElementById("details").textContent=
+   "Cálculo da última vela M1 concluído. Dados M5 utilizados para a tendência.";
+
+  document.getElementById("status").textContent="ANÁLISE CONCLUÍDA";
+
+ }catch(err){
+  document.getElementById("status").textContent="ERRO";
+  document.getElementById("signal").textContent=err.message;
  }
 }
 </script>
 </body>
 </html>
-  
