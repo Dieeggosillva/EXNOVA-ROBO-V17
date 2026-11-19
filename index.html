@@ -28,6 +28,7 @@ button{
  color:white;border:0;border-radius:8px;
  font-weight:bold;font-size:16px;margin-top:12px
 }
+button:disabled{opacity:.5}
 .metric{font-size:20px;color:#36d399;font-weight:bold}
 #signal{font-size:20px;font-weight:bold}
 small{color:#aab6c5}
@@ -51,7 +52,7 @@ small{color:#aab6c5}
 
 <div class="card">
 <h3>Configuração</h3>
-<p>Ativo: <b>EUR/USD OTC</b></p>
+<p>Ativo: <b>EUR/USD</b></p>
 <p>Execução: <b>M1</b></p>
 <p>Confirmação: <b>M5</b></p>
 <p>Indicadores: EMA 9 / EMA 21 / RSI 14</p>
@@ -60,24 +61,39 @@ small{color:#aab6c5}
 </div>
 
 <div class="card">
-<h3>Teste de dados simulados</h3>
-<p id="testeStatus">Aguardando teste...</p>
+<h3>Conexão automática</h3>
+<p id="apiStatus">API: DESCONECTADA</p>
+<p id="ultimaAtualizacao">Última atualização: --</p>
 <p id="testeM1">Velas M1: --</p>
 <p id="testeM5">Velas M5: --</p>
+<button id="btnConectar" onclick="conectarBiQuote()">
+CONECTAR EUR/USD AUTOMATICAMENTE
+</button>
+<button onclick="desconectarBiQuote()">
+PARAR ATUALIZAÇÃO
+</button>
+<small>
+Fonte: biquote.io. Dados Forex EUR/USD, não cotações OTC da Exnova.
+</small>
+</div>
+
+<div class="card">
+<h3>Teste de dados simulados</h3>
+<p id="testeStatus">Aguardando teste...</p>
 <button onclick="carregarTeste()">CARREGAR TESTE AUTOMÁTICO</button>
-<small>Gera velas simuladas. Não é conexão ao vivo com a Exnova.</small>
+<small>Gera velas simuladas. Não são dados reais.</small>
 </div>
 
 <div class="card">
 <h3>Velas M1</h3>
-<small>Lista JSON da vela mais antiga para a mais recente.</small>
-<textarea id="m1" placeholder='[{"open":1.1,"high":1.101,"low":1.099,"close":1.1005}]'></textarea>
+<small>Dados recebidos da API.</small>
+<textarea id="m1" placeholder="Velas M1"></textarea>
 </div>
 
 <div class="card">
 <h3>Velas M5</h3>
-<small>Lista JSON da vela mais antiga para a mais recente.</small>
-<textarea id="m5" placeholder='[{"open":1.1,"high":1.101,"low":1.099,"close":1.1005}]'></textarea>
+<small>Velas M5 construídas a partir das M1.</small>
+<textarea id="m5" placeholder="Velas M5"></textarea>
 </div>
 
 <button onclick="analisar()">ANALISAR MERCADO</button>
@@ -109,49 +125,324 @@ small{color:#aab6c5}
 <script>
 
 /* =====================================
+   CONFIGURACAO BIQUOTE
+===================================== */
+
+const URL_BIQUOTE =
+"https://biquote.io/api/EURUSD/ohlc?interval=1m&limit=300";
+
+let intervaloBiQuote = null;
+let buscandoBiQuote = false;
+
+/* =====================================
+   CONSTRUCAO DAS VELAS M5
+===================================== */
+
+function construirM5(velas){
+
+ const grupos = new Map();
+
+ velas.forEach(v=>{
+
+  const horario = Date.parse(v.openTime);
+
+  const inicio =
+   Math.floor(horario/300000)*300000;
+
+  if(!grupos.has(inicio)){
+   grupos.set(inicio,{
+    openTime:new Date(inicio).toISOString(),
+    open:v.open,
+    high:v.high,
+    low:v.low,
+    close:v.close,
+    horarios:[]
+   });
+  }
+
+  const g=grupos.get(inicio);
+
+  g.high=Math.max(g.high,v.high);
+  g.low=Math.min(g.low,v.low);
+  g.close=v.close;
+
+  g.horarios.push(horario);
+
+ });
+
+ const agora=Date.now();
+
+ const inicioAtual=
+  Math.floor(agora/300000)*300000;
+
+ const resultado=[];
+
+ [...grupos.keys()]
+ .sort((a,b)=>a-b)
+ .forEach(inicio=>{
+
+  const g=grupos.get(inicio);
+
+  g.horarios.sort((a,b)=>a-b);
+
+  const completa=
+   g.horarios.length===5 &&
+   g.horarios.every((h,i,arr)=>
+    i===0 || h-arr[i-1]===60000
+   );
+
+  if(inicio<inicioAtual && completa){
+
+   resultado.push({
+    openTime:g.openTime,
+    open:g.open,
+    high:g.high,
+    low:g.low,
+    close:g.close
+   });
+
+  }
+
+  if(inicio===inicioAtual){
+
+   resultado.push({
+    openTime:g.openTime,
+    open:g.open,
+    high:g.high,
+    low:g.low,
+    close:g.close
+   });
+
+  }
+
+ });
+
+ if(!grupos.has(inicioAtual)){
+
+  const ultimo=velas[velas.length-1];
+
+  resultado.push({
+   openTime:new Date(inicioAtual).toISOString(),
+   open:ultimo.close,
+   high:ultimo.close,
+   low:ultimo.close,
+   close:ultimo.close
+  });
+
+ }
+
+ return resultado;
+}
+
+/* =====================================
+   CONEXAO AUTOMATICA
+===================================== */
+
+async function buscarDadosBiQuote(){
+
+ if(buscandoBiQuote)return;
+
+ buscandoBiQuote=true;
+
+ try{
+
+  const resposta=await fetch(URL_BIQUOTE,{
+   cache:"no-store"
+  });
+
+  if(!resposta.ok){
+   throw new Error("Erro HTTP "+resposta.status);
+  }
+
+  const dados=await resposta.json();
+
+  if(dados.symbol!=="EURUSD" ||
+     !Array.isArray(dados.bars)){
+   throw new Error("Resposta da API inválida");
+  }
+
+  const velas=dados.bars
+   .filter(v=>v.isOpen===false)
+   .map(v=>({
+    openTime:v.openTime,
+    open:Number(v.open),
+    high:Number(v.high),
+    low:Number(v.low),
+    close:Number(v.close),
+    volume:Number(v.volume),
+    tickVolume:Number(v.tickVolume)
+   }))
+   .filter(v=>
+    Number.isFinite(Date.parse(v.openTime)) &&
+    ["open","high","low","close"].every(k=>
+     Number.isFinite(v[k])
+    ) &&
+    v.high>=v.low
+   )
+   .sort((a,b)=>
+    Date.parse(a.openTime)-Date.parse(b.openTime)
+   );
+
+  const unicas=new Map();
+
+  velas.forEach(v=>{
+   unicas.set(v.openTime,v);
+  });
+
+  const m1=[...unicas.values()];
+
+  if(m1.length<22){
+   throw new Error("Menos de 22 velas M1 válidas");
+  }
+
+  const m5=construirM5(m1);
+
+  if(m5.length<22){
+   throw new Error("Menos de 22 velas M5 disponíveis");
+  }
+
+  document.getElementById("m1").value=
+   JSON.stringify(m1);
+
+  document.getElementById("m5").value=
+   JSON.stringify(m5);
+
+  document.getElementById("apiStatus").textContent=
+   "BIQUOTE CONECTADA - DADOS RECEBIDOS";
+
+  document.getElementById("apiStatus").className="ok";
+
+  document.getElementById("ultimaAtualizacao").textContent=
+   "Última atualização: "+new Date().toLocaleTimeString("pt-BR");
+
+  document.getElementById("testeM1").textContent=
+   "Velas M1 fechadas: "+m1.length;
+
+  document.getElementById("testeM5").textContent=
+   "Velas M5 disponíveis: "+m5.length;
+
+  document.getElementById("testeStatus").textContent=
+   "DADOS REAIS RECEBIDOS";
+
+  document.getElementById("testeStatus").className="ok";
+
+  document.getElementById("status").textContent=
+   "DADOS REAIS RECEBIDOS";
+
+  analisar();
+
+ }catch(erro){
+
+  document.getElementById("apiStatus").textContent=
+   "ERRO: "+erro.message;
+
+  document.getElementById("apiStatus").className="erro";
+
+  document.getElementById("status").textContent=
+   "FALHA NA CONEXÃO";
+
+ }finally{
+
+  buscandoBiQuote=false;
+
+ }
+
+}
+
+/* =====================================
+   INICIAR E PARAR CONEXAO
+===================================== */
+
+function conectarBiQuote(){
+
+ if(intervaloBiQuote!==null){
+  clearInterval(intervaloBiQuote);
+ }
+
+ document.getElementById("apiStatus").textContent=
+  "CONECTANDO...";
+
+ buscarDadosBiQuote();
+
+ intervaloBiQuote=setInterval(
+  buscarDadosBiQuote,
+  10000
+ );
+
+}
+
+function desconectarBiQuote(){
+
+ if(intervaloBiQuote!==null){
+  clearInterval(intervaloBiQuote);
+  intervaloBiQuote=null;
+ }
+
+ document.getElementById("apiStatus").textContent=
+  "ATUALIZAÇÃO INTERROMPIDA";
+
+ document.getElementById("status").textContent=
+  "CONEXÃO PARADA";
+
+}
+
+/* =====================================
    INDICADORES
 ===================================== */
 
 function emaSeries(valores,periodo){
+
  const resultado=[];
  const k=2/(periodo+1);
  let anterior=valores[0];
 
  for(let i=0;i<valores.length;i++){
-  if(i===0) anterior=valores[i];
+
+  if(i===0)anterior=valores[i];
   else anterior=valores[i]*k+anterior*(1-k);
 
   resultado.push(anterior);
+
  }
+
  return resultado;
 }
 
 function rsiSeries(valores,periodo=14){
+
  const resultado=Array(valores.length).fill(null);
 
- if(valores.length<=periodo) return resultado;
+ if(valores.length<=periodo)return resultado;
 
  let ganhos=0;
  let perdas=0;
 
  for(let i=1;i<=periodo;i++){
+
   const dif=valores[i]-valores[i-1];
-  if(dif>0) ganhos+=dif;
+
+  if(dif>0)ganhos+=dif;
   else perdas-=dif;
+
  }
 
  let ganhoMedio=ganhos/periodo;
  let perdaMedia=perdas/periodo;
 
  function calcularRSI(){
-  if(perdaMedia===0) return 100;
+
+  if(perdaMedia===0)return 100;
+
   const rs=ganhoMedio/perdaMedia;
+
   return 100-(100/(1+rs));
+
  }
 
  resultado[periodo]=calcularRSI();
 
  for(let i=periodo+1;i<valores.length;i++){
+
   const dif=valores[i]-valores[i-1];
 
   ganhoMedio=
@@ -161,18 +452,20 @@ function rsiSeries(valores,periodo=14){
    (perdaMedia*(periodo-1)+Math.max(-dif,0))/periodo;
 
   resultado[i]=calcularRSI();
+
  }
 
  return resultado;
 }
 
 /* =====================================
-   VALIDACAO DOS DADOS
+   VALIDACAO
 ===================================== */
 
 function validarVelas(velas){
- if(!Array.isArray(velas)) return false;
- if(velas.length<22) return false;
+
+ if(!Array.isArray(velas))return false;
+ if(velas.length<22)return false;
 
  return velas.every(v=>
   v &&
@@ -180,16 +473,19 @@ function validarVelas(velas){
    Number.isFinite(Number(v[k]))
   )
  );
+
 }
 
 /* =====================================
-   TESTE LOCAL DE VELAS
+   TESTE SIMULADO
 ===================================== */
 
 function gerarVelas(preco,quantidade,variacao){
+
  const velas=[];
 
  for(let i=0;i<quantidade;i++){
+
   const abertura=preco;
   const fechamento=abertura+variacao;
 
@@ -201,13 +497,18 @@ function gerarVelas(preco,quantidade,variacao){
   });
 
   preco=fechamento;
+
  }
 
  return velas;
 }
 
 function carregarTeste(){
+
  try{
+
+  desconectarBiQuote();
+
   const m1=gerarVelas(1.100000,30,0.000020);
   const m5=gerarVelas(1.100000,30,0.000050);
 
@@ -231,15 +532,16 @@ function carregarTeste(){
   analisar();
 
  }catch(erro){
+
   document.getElementById("testeStatus").textContent=
    "ERRO: "+erro.message;
 
-  document.getElementById("testeStatus").className="erro";
  }
+
 }
 
 /* =====================================
-   MOTOR DE ANALISE V17.9
+   MOTOR DE ANALISE
 ===================================== */
 
 function analisar(){
@@ -263,7 +565,6 @@ function analisar(){
   const e9m5=emaSeries(fechamentos5,9);
   const e21m5=emaSeries(fechamentos5,21);
 
-  /* M5: leitura da última vela fechada */
   const ultimo5=m5.length-2;
 
   const fechamento5=fechamentos5[ultimo5];
@@ -276,7 +577,6 @@ function analisar(){
    fechamento5<e21m5[ultimo5] &&
    e21m5[ultimo5]<e21m5[ultimo5-1];
 
-  /* Filtro de lateralização do módulo estratégico */
   const distanciaMedias=
    Math.abs(e9m5[ultimo5]-e21m5[ultimo5]);
 
@@ -287,7 +587,6 @@ function analisar(){
    distanciaMedias<fechamento5*0.00035 &&
    inclinacaoEma<fechamento5*0.00025;
 
-  /* Contadores independentes por direção */
   let callRestante=0;
   let putRestante=0;
   let novoCallRestante=0;
@@ -297,12 +596,11 @@ function analisar(){
 
   for(let i=0;i<m1.length;i++){
 
-   if(rsi[i]===null) continue;
+   if(rsi[i]===null)continue;
 
    const abertura=Number(m1[i].open);
    const fechamento=Number(m1[i].close);
 
-   /* CONFIRMAÇÕES ORIGINAIS */
    const callForte=
     tendenciaCall &&
     fechamento>abertura &&
@@ -317,7 +615,6 @@ function analisar(){
     e9[i]<e21[i] &&
     rsi[i]<48;
 
-   /* PRÉ-ALERTAS ORIGINAIS */
    const preCallBruto=
     tendenciaCall &&
     e9[i]>e21[i] &&
@@ -338,13 +635,12 @@ function analisar(){
    const prePut=
     prePutBruto && putRestante<=0;
 
-   if(preCall) callRestante=3;
-   else if(callRestante>0) callRestante--;
+   if(preCall)callRestante=3;
+   else if(callRestante>0)callRestante--;
 
-   if(prePut) putRestante=3;
-   else if(putRestante>0) putRestante--;
+   if(prePut)putRestante=3;
+   else if(putRestante>0)putRestante--;
 
-   /* PRÉ-ALERTAS ESTRATÉGICOS */
    const novoPrePutBruto=
     tendenciaPut &&
     !mercadoLateral &&
@@ -371,13 +667,12 @@ function analisar(){
    const novoPrePut=
     novoPrePutBruto && novoPutRestante<=0;
 
-   if(novoPreCall) novoCallRestante=5;
-   else if(novoCallRestante>0) novoCallRestante--;
+   if(novoPreCall)novoCallRestante=5;
+   else if(novoCallRestante>0)novoCallRestante--;
 
-   if(novoPrePut) novoPutRestante=5;
-   else if(novoPutRestante>0) novoPutRestante--;
+   if(novoPrePut)novoPutRestante=5;
+   else if(novoPutRestante>0)novoPutRestante--;
 
-   /* REGISTRO DOS SINAIS */
    if(callForte)
     sinais.push({tipo:"CALL CONFIRMADO",classe:"verde",vela:i+1});
 
@@ -395,11 +690,8 @@ function analisar(){
 
    if(novoPrePut)
     sinais.push({tipo:"PRÉ-PUT ESTRATÉGICO",classe:"vermelho",vela:i+1});
-  }
 
-  /* =====================================
-     ATUALIZAR PAINEL
-  ===================================== */
+  }
 
   const ultimo=m1.length-1;
 
@@ -420,13 +712,13 @@ function analisar(){
   document.getElementById("lateral").textContent=
    "Mercado lateral: "+(mercadoLateral?"SIM":"NÃO");
 
-  /* SINAIS DA ÚLTIMA VELA */
   const sinaisAtuais=sinais.filter(s=>s.vela===m1.length);
 
   const central=document.getElementById("signal");
   const detalhes=document.getElementById("details");
 
   if(sinaisAtuais.length){
+
    central.textContent="SINAL IDENTIFICADO";
    central.className="ok";
 
@@ -435,36 +727,47 @@ function analisar(){
    ).join("");
 
   }else{
+
    central.textContent="AGUARDANDO SINAL";
    central.className="";
    detalhes.textContent=
     "Nenhum sinal identificado na última vela M1.";
+
   }
 
-  /* HISTÓRICO */
   const historico=document.getElementById("historico");
 
   if(sinais.length){
+
    historico.innerHTML=sinais.slice(-20).reverse().map(s=>
     '<div class="item '+s.classe+'">'+
     '<b>'+s.tipo+'</b> - Vela M1 '+s.vela+
     '</div>'
    ).join("");
+
   }else{
-   historico.textContent="Nenhum sinal encontrado nas velas analisadas.";
+
+   historico.textContent=
+    "Nenhum sinal encontrado nas velas analisadas.";
+
   }
 
   document.getElementById("status").textContent=
-   "ANÁLISE V17.9 CONCLUÍDA";
+   "ANÁLISE CONCLUÍDA";
 
  }catch(erro){
 
-  document.getElementById("signal").textContent="ERRO NA ANÁLISE";
+  document.getElementById("signal").textContent=
+   "ERRO NA ANÁLISE";
 
-  document.getElementById("details").textContent=erro.message;
+  document.getElementById("details").textContent=
+   erro.message;
 
-  document.getElementById("status").textContent="VERIFICAR DADOS";
+  document.getElementById("status").textContent=
+   "VERIFICAR DADOS";
+
  }
+
 }
 
 </script>
