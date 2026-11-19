@@ -191,8 +191,30 @@ function analisar(){
   document.getElementById("signal").textContent=err.message;
  }
 }
-</script> 
-<script src="conexao.js"></script>
+
+<script>
+  const resultado = document.createElement("div");
+  resultado.style.cssText =
+    "padding:15px;margin:15px;background:#17352b;color:white;border-radius:10px;font-size:16px;";
+
+  try {
+    const teste = window.ExnovaTeste.executarTeste();
+
+    resultado.innerHTML =
+      "<b>TESTE DE CONEXÃO</b><br>" +
+      "Status: FUNCIONANDO<br>" +
+      "Ativo: " + teste.ativo + "<br>" +
+      "Origem: " + teste.origem + "<br>" +
+      "Velas M1: " + teste.m1.length + "<br>" +
+      "Velas M5: " + teste.m5.length;
+
+  } catch (erro) {
+    resultado.textContent = "ERRO: " + erro.message;
+  }
+
+  document.body.appendChild(resultado);
+</script>
+
 
 <script>
   const teste = window.ExnovaTeste.executarTeste();
