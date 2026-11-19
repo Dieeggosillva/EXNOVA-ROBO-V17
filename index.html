@@ -5,6 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EXNOVA ROBÔ V17.9</title>
+
 <style>
 *{box-sizing:border-box}
 body{margin:0;padding:16px;background:#10151f;color:#fff;font-family:Arial}
@@ -18,6 +19,7 @@ button{width:100%;padding:15px;background:#16a36a;color:white;border:0;border-ra
 small{color:#aab6c5}
 </style>
 </head>
+
 <body>
 
 <header>
@@ -38,7 +40,7 @@ small{color:#aab6c5}
 
 <div class="card">
 <h3>Velas M1</h3>
-<small>Insira uma lista JSON, da vela mais antiga para a mais recente.</small>
+<small>Lista JSON, da vela mais antiga para a mais recente.</small>
 <textarea id="m1" placeholder='[{"open":1.1,"high":1.101,"low":1.099,"close":1.1005}]'></textarea>
 </div>
 
@@ -68,15 +70,26 @@ small{color:#aab6c5}
 <div id="details"></div>
 </div>
 
+<div class="card">
+<h3>TESTE DE CONEXÃO</h3>
+<p id="connectionStatus">VERIFICANDO...</p>
+<p id="connectionDetails"></p>
+</div>
+
+<script src="conexao.js"></script>
+
 <script>
 function emaSeries(values,period){
  let out=Array(values.length).fill(null);
  if(values.length<period)return out;
+
  let sum=0;
  for(let i=0;i<period;i++)sum+=values[i];
+
  let e=sum/period;
  out[period-1]=e;
  let k=2/(period+1);
+
  for(let i=period;i<values.length;i++){
   e=values[i]*k+e*(1-k);
   out[i]=e;
@@ -87,14 +100,18 @@ function emaSeries(values,period){
 function rsiSeries(values,period=14){
  let out=Array(values.length).fill(null);
  if(values.length<=period)return out;
+
  let gain=0,loss=0;
+
  for(let i=1;i<=period;i++){
   let d=values[i]-values[i-1];
   gain+=Math.max(d,0);
   loss+=Math.max(-d,0);
  }
+
  let ag=gain/period,al=loss/period;
  out[period]=al===0?100:100-100/(1+ag/al);
+
  for(let i=period+1;i<values.length;i++){
   let d=values[i]-values[i-1];
   ag=(ag*(period-1)+Math.max(d,0))/period;
@@ -105,16 +122,22 @@ function rsiSeries(values,period=14){
 }
 
 function validar(data){
- if(!Array.isArray(data))throw Error("Os dados devem ser uma lista JSON.");
- if(data.length<22)throw Error("Insira pelo menos 22 velas.");
+ if(!Array.isArray(data))
+  throw Error("Os dados devem ser uma lista JSON.");
+
+ if(data.length<22)
+  throw Error("Insira pelo menos 22 velas.");
+
  for(let c of data){
   for(let k of ["open","high","low","close"]){
    if(typeof c[k]!=="number"||!Number.isFinite(c[k]))
     throw Error("Cada vela precisa de open, high, low e close numéricos.");
   }
+
   if(c.high<Math.max(c.open,c.close)||
      c.low>Math.min(c.open,c.close)||
-     c.high<c.low)throw Error("Existem valores OHLC inconsistentes.");
+     c.high<c.low)
+   throw Error("Existem valores OHLC inconsistentes.");
  }
 }
 
@@ -122,6 +145,7 @@ function analisar(){
  try{
   let m1=JSON.parse(document.getElementById("m1").value);
   let m5=JSON.parse(document.getElementById("m5").value);
+
   validar(m1);
   validar(m5);
 
@@ -136,8 +160,8 @@ function analisar(){
   let i=m1.length-1;
   let j=m5.length-1;
 
-  if(e9[i]===null||e21[i]===null||r[i]===null||
-     e21m5[j-2]===null)
+  if(e9[i]===null||e21[i]===null||
+     r[i]===null||e21m5[j-2]===null)
    throw Error("Histórico insuficiente para os indicadores.");
 
   let callTrend=
@@ -173,6 +197,7 @@ function analisar(){
    putTrend?"TENDÊNCIA DE BAIXA":"SEM TENDÊNCIA CONFIRMADA";
 
   let signals=[];
+
   if(call)signals.push("CALL CONFIRMADO");
   if(put)signals.push("PUT CONFIRMADO");
   if(preCall)signals.push("PRÉ-CALL ORIGINAL AZUL");
@@ -182,7 +207,7 @@ function analisar(){
    signals.length?signals.join(" | "):"SEM SINAL NESTA VELA";
 
   document.getElementById("details").textContent=
-   "Cálculo da última vela M1 concluído. Dados M5 utilizados para a tendência.";
+   "Cálculo da última vela M1 concluído. M5 utilizado como confirmação.";
 
   document.getElementById("status").textContent="ANÁLISE CONCLUÍDA";
 
@@ -192,38 +217,37 @@ function analisar(){
  }
 }
 
-<script>
-  const resultado = document.createElement("div");
-  resultado.style.cssText =
-    "padding:15px;margin:15px;background:#17352b;color:white;border-radius:10px;font-size:16px;";
+// TESTE DO ARQUIVO CONEXAO.JS
+function testarConexao(){
+ const status=document.getElementById("connectionStatus");
+ const details=document.getElementById("connectionDetails");
 
-  try {
-    const teste = window.ExnovaTeste.executarTeste();
-
-    resultado.innerHTML =
-      "<b>TESTE DE CONEXÃO</b><br>" +
-      "Status: FUNCIONANDO<br>" +
-      "Ativo: " + teste.ativo + "<br>" +
-      "Origem: " + teste.origem + "<br>" +
-      "Velas M1: " + teste.m1.length + "<br>" +
-      "Velas M5: " + teste.m5.length;
-
-  } catch (erro) {
-    resultado.textContent = "ERRO: " + erro.message;
+ try{
+  if(!window.ExnovaTeste||
+     typeof window.ExnovaTeste.executarTeste!=="function"){
+   throw Error("Arquivo conexao.js não carregado.");
   }
 
-  document.body.appendChild(resultado);
+  const teste=window.ExnovaTeste.executarTeste();
+
+  status.textContent="TESTE FUNCIONANDO";
+  status.style.color="#36d399";
+
+  details.textContent=
+   "Ativo: "+teste.ativo+
+   " | Origem: "+teste.origem+
+   " | Velas M1: "+teste.m1.length+
+   " | Velas M5: "+teste.m5.length;
+
+ }catch(erro){
+  status.textContent="ERRO NO TESTE";
+  status.style.color="#ff5252";
+  details.textContent=erro.message;
+ }
+}
+
+testarConexao();
 </script>
 
-
-<script>
-  const teste = window.ExnovaTeste.executarTeste();
-
-  console.log("Ativo:", teste.ativo);
-  console.log("Origem:", teste.origem);
-  console.log("Velas M1:", teste.m1.length);
-  console.log("Velas M5:", teste.m5.length);
-</script>
- 
 </body>
 </html>
