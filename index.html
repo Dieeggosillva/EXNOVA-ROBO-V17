@@ -5,35 +5,72 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EXNOVA ROBÔ V17.9</title>
+
 <style>
 *{box-sizing:border-box}
+
 body{
- margin:0;padding:16px;background:#10151f;
- color:#fff;font-family:Arial,sans-serif
+ margin:0;
+ padding:16px;
+ background:#10151f;
+ color:#fff;
+ font-family:Arial,sans-serif;
 }
-header{text-align:center;padding:15px}
+
+header{
+ text-align:center;
+ padding:15px;
+}
+
 h1{color:#36d399}
+
 .card{
- background:#1b2636;padding:16px;
- border-radius:12px;margin:14px 0
+ background:#1b2636;
+ padding:16px;
+ border-radius:12px;
+ margin:14px 0;
 }
+
 textarea{
- width:100%;height:130px;background:#10151f;
- color:white;border:1px solid #526078;
- border-radius:8px;padding:10px
+ width:100%;
+ height:130px;
+ background:#10151f;
+ color:white;
+ border:1px solid #526078;
+ border-radius:8px;
+ padding:10px;
 }
+
 button{
- width:100%;padding:15px;background:#16a36a;
- color:white;border:0;border-radius:8px;
- font-weight:bold;font-size:16px;margin-top:12px
+ width:100%;
+ padding:15px;
+ background:#16a36a;
+ color:white;
+ border:0;
+ border-radius:8px;
+ font-weight:bold;
+ font-size:16px;
+ margin-top:12px;
 }
-.metric{font-size:20px;color:#36d399;font-weight:bold}
-#signal{font-size:20px;font-weight:bold}
+
+.metric{
+ font-size:20px;
+ color:#36d399;
+ font-weight:bold;
+}
+
+#signal{
+ font-size:20px;
+ font-weight:bold;
+}
+
 small{color:#aab6c5}
+
 .ok{color:#36d399}
 .erro{color:#ff6464}
 </style>
 </head>
+
 <body>
 
 <header>
@@ -58,7 +95,7 @@ small{color:#aab6c5}
 <p id="testeM1">Velas M1: --</p>
 <p id="testeM5">Velas M5: --</p>
 <button onclick="testarConexao()">TESTAR CONEXÃO</button>
-<small>Este teste usa velas simuladas. Não é uma conexão ao vivo com a Exnova.</small>
+<small>Teste local com velas simuladas. Ainda não recebe cotações reais da Exnova.</small>
 </div>
 
 <div class="card">
@@ -93,136 +130,192 @@ small{color:#aab6c5}
 <div id="details"></div>
 </div>
 
-<script src="conexao.js"></script>
-
+<!-- TESTE INCORPORADO NO PROPRIO PAINEL -->
 <script>
-function testarConexao(){
- const status=document.getElementById("testeStatus");
- const m1=document.getElementById("testeM1");
- const m5=document.getElementById("testeM5");
+window.ExnovaTeste = {
+ executarTeste: function() {
 
- try{
-  if(!window.ExnovaTeste ||
-     typeof window.ExnovaTeste.executarTeste!=="function"){
-   throw new Error("Arquivo conexao.js não carregou.");
+  function gerarVelas(preco, quantidade, variacao) {
+   const velas = [];
+
+   for (let i = 0; i < quantidade; i++) {
+    const abertura = preco;
+    const fechamento = abertura + variacao;
+
+    velas.push({
+     open: Number(abertura.toFixed(6)),
+     high: Number((Math.max(abertura, fechamento) + 0.00010).toFixed(6)),
+     low: Number((Math.min(abertura, fechamento) - 0.00010).toFixed(6)),
+     close: Number(fechamento.toFixed(6))
+    });
+
+    preco = fechamento;
+   }
+
+   return velas;
   }
 
-  const dados=window.ExnovaTeste.executarTeste();
+  return {
+   ativo: "EUR/USD OTC",
+   origem: "SIMULACAO",
+   m1: gerarVelas(1.100000, 30, 0.000020),
+   m5: gerarVelas(1.100000, 30, 0.000050)
+  };
+ }
+};
+</script>
 
-  if(!dados || !Array.isArray(dados.m1) ||
-     !Array.isArray(dados.m5)){
+<!-- FUNCOES DO PAINEL -->
+<script>
+
+function testarConexao() {
+ const status = document.getElementById("testeStatus");
+ const m1 = document.getElementById("testeM1");
+ const m5 = document.getElementById("testeM5");
+
+ try {
+  const dados = window.ExnovaTeste.executarTeste();
+
+  if (!dados || !Array.isArray(dados.m1) ||
+      !Array.isArray(dados.m5)) {
    throw new Error("Dados de teste inválidos.");
   }
 
-  if(dados.m1.length===0 || dados.m5.length===0){
-   throw new Error("Nenhuma vela foi gerada.");
-  }
+  status.textContent = "TESTE FUNCIONANDO";
+  status.className = "ok";
 
-  status.textContent="TESTE FUNCIONANDO";
-  status.className="ok";
-  m1.textContent="Velas M1: "+dados.m1.length;
-  m5.textContent="Velas M5: "+dados.m5.length;
+  m1.textContent = "Velas M1: " + dados.m1.length;
+  m5.textContent = "Velas M5: " + dados.m5.length;
 
-  document.getElementById("status").textContent=
+  document.getElementById("status").textContent =
    "MÓDULO DE TESTE CARREGADO";
 
- }catch(erro){
-  status.textContent="ERRO NO TESTE: "+erro.message;
-  status.className="erro";
-  m1.textContent="Velas M1: --";
-  m5.textContent="Velas M5: --";
-  document.getElementById("status").textContent=
+ } catch (erro) {
+  status.textContent = "ERRO NO TESTE: " + erro.message;
+  status.className = "erro";
+  document.getElementById("status").textContent =
    "FALHA NO TESTE";
  }
 }
 
-function emaSeries(valores,periodo){
- const resultado=[];
- const k=2/(periodo+1);
- let anterior=valores[0];
+function emaSeries(valores, periodo) {
+ const resultado = [];
+ const k = 2 / (periodo + 1);
+ let anterior = valores[0];
 
- for(let i=0;i<valores.length;i++){
-  if(i===0) anterior=valores[i];
-  else anterior=valores[i]*k+anterior*(1-k);
+ for (let i = 0; i < valores.length; i++) {
+  if (i === 0) {
+   anterior = valores[i];
+  } else {
+   anterior = valores[i] * k + anterior * (1 - k);
+  }
   resultado.push(anterior);
  }
+
  return resultado;
 }
 
-function rsiSeries(valores,periodo=14){
- let ganhos=0,perdas=0;
+function rsiSeries(valores, periodo = 14) {
+ let ganhos = 0;
+ let perdas = 0;
 
- for(let i=1;i<=periodo;i++){
-  const dif=valores[i]-valores[i-1];
-  if(dif>0)ganhos+=dif;
-  else perdas-=dif;
+ for (let i = 1; i <= periodo; i++) {
+  const dif = valores[i] - valores[i - 1];
+
+  if (dif > 0) ganhos += dif;
+  else perdas -= dif;
  }
 
- let ganhoMedio=ganhos/periodo;
- let perdaMedia=perdas/periodo;
+ let ganhoMedio = ganhos / periodo;
+ let perdaMedia = perdas / periodo;
 
- for(let i=periodo+1;i<valores.length;i++){
-  const dif=valores[i]-valores[i-1];
-  ganhoMedio=(ganhoMedio*(periodo-1)+Math.max(dif,0))/periodo;
-  perdaMedia=(perdaMedia*(periodo-1)+Math.max(-dif,0))/periodo;
+ for (let i = periodo + 1; i < valores.length; i++) {
+  const dif = valores[i] - valores[i - 1];
+
+  ganhoMedio =
+   (ganhoMedio * (periodo - 1) + Math.max(dif, 0)) / periodo;
+
+  perdaMedia =
+   (perdaMedia * (periodo - 1) + Math.max(-dif, 0)) / periodo;
  }
 
- if(perdaMedia===0)return 100;
- const rs=ganhoMedio/perdaMedia;
- return 100-(100/(1+rs));
+ if (perdaMedia === 0) return 100;
+
+ const rs = ganhoMedio / perdaMedia;
+ return 100 - (100 / (1 + rs));
 }
 
-function analisar(){
- try{
-  const m1=JSON.parse(document.getElementById("m1").value);
-  const m5=JSON.parse(document.getElementById("m5").value);
+function analisar() {
+ try {
+  const m1 = JSON.parse(document.getElementById("m1").value);
+  const m5 = JSON.parse(document.getElementById("m5").value);
 
-  if(!Array.isArray(m1)||!Array.isArray(m5))
+  if (!Array.isArray(m1) || !Array.isArray(m5)) {
    throw new Error("Os dados precisam ser listas JSON.");
-
-  if(m1.length<22||m5.length<22)
-   throw new Error("Insira pelo menos 22 velas em M1 e M5.");
-
-  for(const v of [...m1,...m5]){
-   if(!v||!["open","high","low","close"].every(k=>
-    Number.isFinite(Number(v[k]))))
-    throw new Error("Confira os valores OHLC das velas.");
   }
 
-  const fechamentos=m1.map(v=>Number(v.close));
-  const fechamentos5=m5.map(v=>Number(v.close));
+  if (m1.length < 22 || m5.length < 22) {
+   throw new Error("Insira pelo menos 22 velas em M1 e M5.");
+  }
 
-  const e9=emaSeries(fechamentos,9);
-  const e21=emaSeries(fechamentos,21);
-  const e21m5=emaSeries(fechamentos5,21);
-  const rsi=rsiSeries(fechamentos,14);
+  for (const v of [...m1, ...m5]) {
+   if (!v || !["open","high","low","close"].every(k =>
+    Number.isFinite(Number(v[k])))) {
+    throw new Error("Confira os valores OHLC das velas.");
+   }
+  }
 
-  const ultimo=m1[m1.length-1];
-  const alta5=fechamentos5.at(-1)>e21m5.at(-1);
-  const baixa5=fechamentos5.at(-1)<e21m5.at(-1);
+  const fechamentos = m1.map(v => Number(v.close));
+  const fechamentos5 = m5.map(v => Number(v.close));
 
-  document.getElementById("ema9").textContent=e9.at(-1).toFixed(6);
-  document.getElementById("ema21").textContent=e21.at(-1).toFixed(6);
-  document.getElementById("rsi").textContent=rsi.toFixed(2);
+  const e9 = emaSeries(fechamentos, 9);
+  const e21 = emaSeries(fechamentos, 21);
+  const e21m5 = emaSeries(fechamentos5, 21);
+  const rsi = rsiSeries(fechamentos, 14);
 
-  document.getElementById("trend").textContent=
-   alta5?"TENDÊNCIA DE ALTA":
-   baixa5?"TENDÊNCIA DE BAIXA":"M5 SEM DIREÇÃO";
+  document.getElementById("ema9").textContent =
+   e9[e9.length - 1].toFixed(6);
 
-  document.getElementById("signal").textContent=
+  document.getElementById("ema21").textContent =
+   e21[e21.length - 1].toFixed(6);
+
+  document.getElementById("rsi").textContent =
+   rsi.toFixed(2);
+
+  const alta5 =
+   fechamentos5[fechamentos5.length - 1] >
+   e21m5[e21m5.length - 1];
+
+  const baixa5 =
+   fechamentos5[fechamentos5.length - 1] <
+   e21m5[e21m5.length - 1];
+
+  document.getElementById("trend").textContent =
+   alta5 ? "TENDÊNCIA DE ALTA" :
+   baixa5 ? "TENDÊNCIA DE BAIXA" :
+   "M5 SEM DIREÇÃO";
+
+  document.getElementById("signal").textContent =
    "DADOS ANALISADOS";
-  document.getElementById("details").textContent=
-   "Último fechamento: "+Number(ultimo.close).toFixed(6)+
-   " | RSI: "+rsi.toFixed(2)+
-   ". Esta análise é um diagnóstico básico, não uma reprodução validada da V17.9.";
 
-  document.getElementById("status").textContent="ANÁLISE CONCLUÍDA";
+  document.getElementById("details").textContent =
+   "Último fechamento: " +
+   fechamentos[fechamentos.length - 1].toFixed(6) +
+   " | RSI: " + rsi.toFixed(2) +
+   ". Diagnóstico básico, ainda não é a lógica completa da V17.9.";
 
- }catch(erro){
-  document.getElementById("signal").textContent="ERRO NOS DADOS";
-  document.getElementById("details").textContent=erro.message;
+  document.getElementById("status").textContent =
+   "ANÁLISE CONCLUÍDA";
+
+ } catch (erro) {
+  document.getElementById("signal").textContent =
+   "ERRO NOS DADOS";
+
+  document.getElementById("details").textContent =
+   erro.message;
  }
 }
+
 </script>
 
 </body>
