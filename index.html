@@ -191,6 +191,17 @@ function analisar(){
   document.getElementById("signal").textContent=err.message;
  }
 }
+</script> 
+<script src="conexao.js"></script>
+
+<script>
+  const teste = window.ExnovaTeste.executarTeste();
+
+  console.log("Ativo:", teste.ativo);
+  console.log("Origem:", teste.origem);
+  console.log("Velas M1:", teste.m1.length);
+  console.log("Velas M5:", teste.m5.length);
 </script>
+ 
 </body>
 </html>
