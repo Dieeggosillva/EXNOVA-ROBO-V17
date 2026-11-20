@@ -8,26 +8,12 @@
 
 <style>
 *{box-sizing:border-box}
-body{
- margin:0;padding:16px;background:#10151f;
- color:#fff;font-family:Arial,sans-serif
-}
+body{margin:0;padding:16px;background:#10151f;color:#fff;font-family:Arial,sans-serif}
 header{text-align:center;padding:15px}
 h1{color:#36d399}
-.card{
- background:#1b2636;padding:16px;
- border-radius:12px;margin:14px 0
-}
-textarea{
- width:100%;height:130px;background:#10151f;
- color:white;border:1px solid #526078;
- border-radius:8px;padding:10px
-}
-button{
- width:100%;padding:15px;background:#16a36a;
- color:white;border:0;border-radius:8px;
- font-weight:bold;font-size:16px;margin-top:12px
-}
+.card{background:#1b2636;padding:16px;border-radius:12px;margin:14px 0}
+textarea{width:100%;height:130px;background:#10151f;color:white;border:1px solid #526078;border-radius:8px;padding:10px}
+button{width:100%;padding:15px;background:#16a36a;color:white;border:0;border-radius:8px;font-weight:bold;font-size:16px;margin-top:12px}
 button:disabled{opacity:.5}
 .metric{font-size:20px;color:#36d399;font-weight:bold}
 #signal{font-size:20px;font-weight:bold}
@@ -66,15 +52,9 @@ small{color:#aab6c5}
 <p id="ultimaAtualizacao">Última atualização: --</p>
 <p id="testeM1">Velas M1: --</p>
 <p id="testeM5">Velas M5: --</p>
-<button id="btnConectar" onclick="conectarBiQuote()">
-CONECTAR EUR/USD AUTOMATICAMENTE
-</button>
-<button onclick="desconectarBiQuote()">
-PARAR ATUALIZAÇÃO
-</button>
-<small>
-Fonte: biquote.io. Dados Forex EUR/USD, não cotações OTC da Exnova.
-</small>
+<button onclick="conectarBiQuote()">CONECTAR EUR/USD AUTOMATICAMENTE</button>
+<button onclick="desconectarBiQuote()">PARAR ATUALIZAÇÃO</button>
+<small>Fonte: biquote.io. Dados Forex EUR/USD, não cotações OTC da Exnova.</small>
 </div>
 
 <div class="card">
@@ -92,7 +72,7 @@ Fonte: biquote.io. Dados Forex EUR/USD, não cotações OTC da Exnova.
 
 <div class="card">
 <h3>Velas M5</h3>
-<small>Velas M5 construídas a partir das M1.</small>
+<small>Somente velas M5 completas, construídas a partir das M1.</small>
 <textarea id="m5" placeholder="Velas M5"></textarea>
 </div>
 
@@ -124,9 +104,7 @@ Fonte: biquote.io. Dados Forex EUR/USD, não cotações OTC da Exnova.
 
 <script>
 
-/* =====================================
-   CONFIGURACAO BIQUOTE
-===================================== */
+/* CONFIGURAÇÃO BIQUOTE */
 
 const URL_BIQUOTE =
 "https://biquote.io/api/EURUSD/ohlc?interval=1m&limit=300";
@@ -134,639 +112,616 @@ const URL_BIQUOTE =
 let intervaloBiQuote = null;
 let buscandoBiQuote = false;
 
-/* =====================================
-   CONSTRUCAO DAS VELAS M5
-===================================== */
+
+/* CONSTRUÇÃO CORRIGIDA DAS VELAS M5 */
+
+/*
+Cada M5 precisa ter:
+- exatamente 5 velas M1;
+- horários consecutivos, separados por 60 segundos;
+- todas dentro do mesmo intervalo de 5 minutos.
+
+Não cria velas artificiais.
+Não utiliza grupos incompletos.
+*/
 
 function construirM5(velas){
 
- const grupos = new Map();
+    const grupos = new Map();
 
- velas.forEach(v=>{
+    const ordenadas = [...velas].sort((a,b)=>
+        Date.parse(a.openTime)-Date.parse(b.openTime)
+    );
 
-  const horario = Date.parse(v.openTime);
+    ordenadas.forEach(v=>{
 
-  const inicio =
-   Math.floor(horario/300000)*300000;
+        const horario = Date.parse(v.openTime);
 
-  if(!grupos.has(inicio)){
-   grupos.set(inicio,{
-    openTime:new Date(inicio).toISOString(),
-    open:v.open,
-    high:v.high,
-    low:v.low,
-    close:v.close,
-    horarios:[]
-   });
-  }
+        if(!Number.isFinite(horario)) return;
 
-  const g=grupos.get(inicio);
+        const inicio =
+            Math.floor(horario/300000)*300000;
 
-  g.high=Math.max(g.high,v.high);
-  g.low=Math.min(g.low,v.low);
-  g.close=v.close;
+        if(!grupos.has(inicio)){
+            grupos.set(inicio,[]);
+        }
 
-  g.horarios.push(horario);
+        grupos.get(inicio).push(v);
 
- });
+    });
 
- const agora=Date.now();
+    const resultado = [];
 
- const inicioAtual=
-  Math.floor(agora/300000)*300000;
+    [...grupos.keys()]
+        .sort((a,b)=>a-b)
+        .forEach(inicio=>{
 
- const resultado=[];
+            const grupo = grupos.get(inicio).sort((a,b)=>
+                Date.parse(a.openTime)-Date.parse(b.openTime)
+            );
 
- [...grupos.keys()]
- .sort((a,b)=>a-b)
- .forEach(inicio=>{
+            if(grupo.length !== 5) return;
 
-  const g=grupos.get(inicio);
+            const horarios = grupo.map(v=>
+                Date.parse(v.openTime)
+            );
 
-  g.horarios.sort((a,b)=>a-b);
+            const consecutivas = horarios.every((h,i)=>
+                i===0 || h-horarios[i-1]===60000
+            );
 
-  const completa=
-   g.horarios.length===5 &&
-   g.horarios.every((h,i,arr)=>
-    i===0 || h-arr[i-1]===60000
-   );
+            const mesmoIntervalo = horarios.every(h=>
+                Math.floor(h/300000)*300000===inicio
+            );
 
-  if(inicio<inicioAtual && completa){
+            if(!consecutivas || !mesmoIntervalo) return;
 
-   resultado.push({
-    openTime:g.openTime,
-    open:g.open,
-    high:g.high,
-    low:g.low,
-    close:g.close
-   });
+            resultado.push({
+                openTime:new Date(inicio).toISOString(),
+                open:grupo[0].open,
+                high:Math.max(...grupo.map(v=>v.high)),
+                low:Math.min(...grupo.map(v=>v.low)),
+                close:grupo[4].close
+            });
 
-  }
+        });
 
-  if(inicio===inicioAtual){
-
-   resultado.push({
-    openTime:g.openTime,
-    open:g.open,
-    high:g.high,
-    low:g.low,
-    close:g.close
-   });
-
-  }
-
- });
-
- if(!grupos.has(inicioAtual)){
-
-  const ultimo=velas[velas.length-1];
-
-  resultado.push({
-   openTime:new Date(inicioAtual).toISOString(),
-   open:ultimo.close,
-   high:ultimo.close,
-   low:ultimo.close,
-   close:ultimo.close
-  });
-
- }
-
- return resultado;
+    return resultado;
 }
 
-/* =====================================
-   CONEXAO AUTOMATICA
-===================================== */
+
+/* CONEXÃO AUTOMÁTICA */
 
 async function buscarDadosBiQuote(){
 
- if(buscandoBiQuote)return;
+    if(buscandoBiQuote) return;
 
- buscandoBiQuote=true;
+    buscandoBiQuote=true;
 
- try{
+    try{
 
-  const resposta=await fetch(URL_BIQUOTE,{
-   cache:"no-store"
-  });
+        const resposta=await fetch(URL_BIQUOTE,{
+            cache:"no-store"
+        });
 
-  if(!resposta.ok){
-   throw new Error("Erro HTTP "+resposta.status);
-  }
+        if(!resposta.ok){
+            throw new Error("Erro HTTP "+resposta.status);
+        }
 
-  const dados=await resposta.json();
+        const dados=await resposta.json();
 
-  if(dados.symbol!=="EURUSD" ||
-     !Array.isArray(dados.bars)){
-   throw new Error("Resposta da API inválida");
-  }
+        if(dados.symbol!=="EURUSD" ||
+           !Array.isArray(dados.bars)){
+            throw new Error("Resposta da API inválida");
+        }
 
-  const velas=dados.bars
-   .filter(v=>v.isOpen===false)
-   .map(v=>({
-    openTime:v.openTime,
-    open:Number(v.open),
-    high:Number(v.high),
-    low:Number(v.low),
-    close:Number(v.close),
-    volume:Number(v.volume),
-    tickVolume:Number(v.tickVolume)
-   }))
-   .filter(v=>
-    Number.isFinite(Date.parse(v.openTime)) &&
-    ["open","high","low","close"].every(k=>
-     Number.isFinite(v[k])
-    ) &&
-    v.high>=v.low
-   )
-   .sort((a,b)=>
-    Date.parse(a.openTime)-Date.parse(b.openTime)
-   );
+        const velas=dados.bars
+            .filter(v=>v.isOpen===false)
+            .map(v=>({
+                openTime:v.openTime,
+                open:Number(v.open),
+                high:Number(v.high),
+                low:Number(v.low),
+                close:Number(v.close),
+                volume:Number(v.volume),
+                tickVolume:Number(v.tickVolume)
+            }))
+            .filter(v=>
+                Number.isFinite(Date.parse(v.openTime)) &&
+                ["open","high","low","close"].every(k=>
+                    Number.isFinite(v[k])
+                ) &&
+                v.high>=v.low
+            )
+            .sort((a,b)=>
+                Date.parse(a.openTime)-Date.parse(b.openTime)
+            );
 
-  const unicas=new Map();
+        const unicas=new Map();
 
-  velas.forEach(v=>{
-   unicas.set(v.openTime,v);
-  });
+        velas.forEach(v=>{
+            unicas.set(v.openTime,v);
+        });
 
-  const m1=[...unicas.values()];
+        const m1=[...unicas.values()];
 
-  if(m1.length<22){
-   throw new Error("Menos de 22 velas M1 válidas");
-  }
+        if(m1.length<22){
+            throw new Error("Menos de 22 velas M1 válidas");
+        }
 
-  const m5=construirM5(m1);
+        const m5=construirM5(m1);
 
-  if(m5.length<22){
-   throw new Error("Menos de 22 velas M5 disponíveis");
-  }
+        if(m5.length<22){
+            throw new Error("Menos de 22 velas M5 completas");
+        }
 
-  document.getElementById("m1").value=
-   JSON.stringify(m1);
+        document.getElementById("m1").value=
+            JSON.stringify(m1);
 
-  document.getElementById("m5").value=
-   JSON.stringify(m5);
+        document.getElementById("m5").value=
+            JSON.stringify(m5);
 
-  document.getElementById("apiStatus").textContent=
-   "BIQUOTE CONECTADA - DADOS RECEBIDOS";
+        document.getElementById("apiStatus").textContent=
+            "BIQUOTE CONECTADA - DADOS RECEBIDOS";
 
-  document.getElementById("apiStatus").className="ok";
+        document.getElementById("apiStatus").className="ok";
 
-  document.getElementById("ultimaAtualizacao").textContent=
-   "Última atualização: "+new Date().toLocaleTimeString("pt-BR");
+        document.getElementById("ultimaAtualizacao").textContent=
+            "Última atualização: "+
+            new Date().toLocaleTimeString("pt-BR");
 
-  document.getElementById("testeM1").textContent=
-   "Velas M1 fechadas: "+m1.length;
+        document.getElementById("testeM1").textContent=
+            "Velas M1 fechadas: "+m1.length;
 
-  document.getElementById("testeM5").textContent=
-   "Velas M5 disponíveis: "+m5.length;
+        document.getElementById("testeM5").textContent=
+            "Velas M5 completas: "+m5.length;
 
-  document.getElementById("testeStatus").textContent=
-   "DADOS REAIS RECEBIDOS";
+        document.getElementById("testeStatus").textContent=
+            "DADOS REAIS RECEBIDOS";
 
-  document.getElementById("testeStatus").className="ok";
+        document.getElementById("testeStatus").className="ok";
 
-  document.getElementById("status").textContent=
-   "DADOS REAIS RECEBIDOS";
+        document.getElementById("status").textContent=
+            "DADOS REAIS RECEBIDOS";
 
-  analisar();
+        analisar();
 
- }catch(erro){
+    }catch(erro){
 
-  document.getElementById("apiStatus").textContent=
-   "ERRO: "+erro.message;
+        document.getElementById("apiStatus").textContent=
+            "ERRO: "+erro.message;
 
-  document.getElementById("apiStatus").className="erro";
+        document.getElementById("apiStatus").className="erro";
 
-  document.getElementById("status").textContent=
-   "FALHA NA CONEXÃO";
+        document.getElementById("status").textContent=
+            "FALHA NA CONEXÃO";
 
- }finally{
+    }finally{
 
-  buscandoBiQuote=false;
+        buscandoBiQuote=false;
 
- }
+    }
 
 }
 
-/* =====================================
-   INICIAR E PARAR CONEXAO
-===================================== */
+
+/* INICIAR E PARAR CONEXÃO */
 
 function conectarBiQuote(){
 
- if(intervaloBiQuote!==null){
-  clearInterval(intervaloBiQuote);
- }
+    if(intervaloBiQuote!==null){
+        clearInterval(intervaloBiQuote);
+    }
 
- document.getElementById("apiStatus").textContent=
-  "CONECTANDO...";
+    document.getElementById("apiStatus").textContent=
+        "CONECTANDO...";
 
- buscarDadosBiQuote();
+    buscarDadosBiQuote();
 
- intervaloBiQuote=setInterval(
-  buscarDadosBiQuote,
-  10000
- );
+    intervaloBiQuote=setInterval(
+        buscarDadosBiQuote,
+        10000
+    );
 
 }
 
 function desconectarBiQuote(){
 
- if(intervaloBiQuote!==null){
-  clearInterval(intervaloBiQuote);
-  intervaloBiQuote=null;
- }
+    if(intervaloBiQuote!==null){
+        clearInterval(intervaloBiQuote);
+        intervaloBiQuote=null;
+    }
 
- document.getElementById("apiStatus").textContent=
-  "ATUALIZAÇÃO INTERROMPIDA";
+    document.getElementById("apiStatus").textContent=
+        "ATUALIZAÇÃO INTERROMPIDA";
 
- document.getElementById("status").textContent=
-  "CONEXÃO PARADA";
+    document.getElementById("status").textContent=
+        "CONEXÃO PARADA";
 
 }
 
-/* =====================================
-   INDICADORES
-===================================== */
+
+/* INDICADORES */
 
 function emaSeries(valores,periodo){
 
- const resultado=[];
- const k=2/(periodo+1);
- let anterior=valores[0];
+    const resultado=[];
+    const k=2/(periodo+1);
+    let anterior=valores[0];
 
- for(let i=0;i<valores.length;i++){
+    for(let i=0;i<valores.length;i++){
 
-  if(i===0)anterior=valores[i];
-  else anterior=valores[i]*k+anterior*(1-k);
+        if(i===0) anterior=valores[i];
+        else anterior=valores[i]*k+anterior*(1-k);
 
-  resultado.push(anterior);
+        resultado.push(anterior);
 
- }
+    }
 
- return resultado;
+    return resultado;
 }
 
 function rsiSeries(valores,periodo=14){
 
- const resultado=Array(valores.length).fill(null);
+    const resultado=Array(valores.length).fill(null);
 
- if(valores.length<=periodo)return resultado;
+    if(valores.length<=periodo) return resultado;
 
- let ganhos=0;
- let perdas=0;
+    let ganhos=0;
+    let perdas=0;
 
- for(let i=1;i<=periodo;i++){
+    for(let i=1;i<=periodo;i++){
 
-  const dif=valores[i]-valores[i-1];
+        const dif=valores[i]-valores[i-1];
 
-  if(dif>0)ganhos+=dif;
-  else perdas-=dif;
+        if(dif>0) ganhos+=dif;
+        else perdas-=dif;
 
- }
+    }
 
- let ganhoMedio=ganhos/periodo;
- let perdaMedia=perdas/periodo;
+    let ganhoMedio=ganhos/periodo;
+    let perdaMedia=perdas/periodo;
 
- function calcularRSI(){
+    function calcularRSI(){
 
-  if(perdaMedia===0)return 100;
+        if(perdaMedia===0) return 100;
 
-  const rs=ganhoMedio/perdaMedia;
+        const rs=ganhoMedio/perdaMedia;
 
-  return 100-(100/(1+rs));
+        return 100-(100/(1+rs));
 
- }
+    }
 
- resultado[periodo]=calcularRSI();
+    resultado[periodo]=calcularRSI();
 
- for(let i=periodo+1;i<valores.length;i++){
+    for(let i=periodo+1;i<valores.length;i++){
 
-  const dif=valores[i]-valores[i-1];
+        const dif=valores[i]-valores[i-1];
 
-  ganhoMedio=
-   (ganhoMedio*(periodo-1)+Math.max(dif,0))/periodo;
+        ganhoMedio=
+            (ganhoMedio*(periodo-1)+Math.max(dif,0))/periodo;
 
-  perdaMedia=
-   (perdaMedia*(periodo-1)+Math.max(-dif,0))/periodo;
+        perdaMedia=
+            (perdaMedia*(periodo-1)+Math.max(-dif,0))/periodo;
 
-  resultado[i]=calcularRSI();
+        resultado[i]=calcularRSI();
 
- }
+    }
 
- return resultado;
+    return resultado;
 }
 
-/* =====================================
-   VALIDACAO
-===================================== */
+
+/* VALIDAÇÃO */
 
 function validarVelas(velas){
 
- if(!Array.isArray(velas))return false;
- if(velas.length<22)return false;
+    if(!Array.isArray(velas)) return false;
+    if(velas.length<22) return false;
 
- return velas.every(v=>
-  v &&
-  ["open","high","low","close"].every(k=>
-   Number.isFinite(Number(v[k]))
-  )
- );
+    return velas.every(v=>
+        v &&
+        ["open","high","low","close"].every(k=>
+            Number.isFinite(Number(v[k]))
+        )
+    );
 
 }
 
-/* =====================================
-   TESTE SIMULADO
-===================================== */
+
+/* TESTE SIMULADO */
 
 function gerarVelas(preco,quantidade,variacao){
 
- const velas=[];
+    const velas=[];
 
- for(let i=0;i<quantidade;i++){
+    for(let i=0;i<quantidade;i++){
 
-  const abertura=preco;
-  const fechamento=abertura+variacao;
+        const abertura=preco;
+        const fechamento=abertura+variacao;
 
-  velas.push({
-   open:Number(abertura.toFixed(6)),
-   high:Number((Math.max(abertura,fechamento)+0.00010).toFixed(6)),
-   low:Number((Math.min(abertura,fechamento)-0.00010).toFixed(6)),
-   close:Number(fechamento.toFixed(6))
-  });
+        velas.push({
+            open:Number(abertura.toFixed(6)),
+            high:Number((Math.max(abertura,fechamento)+0.00010).toFixed(6)),
+            low:Number((Math.min(abertura,fechamento)-0.00010).toFixed(6)),
+            close:Number(fechamento.toFixed(6))
+        });
 
-  preco=fechamento;
+        preco=fechamento;
 
- }
+    }
 
- return velas;
+    return velas;
 }
 
 function carregarTeste(){
 
- try{
+    try{
 
-  desconectarBiQuote();
+        desconectarBiQuote();
 
-  const m1=gerarVelas(1.100000,30,0.000020);
-  const m5=gerarVelas(1.100000,30,0.000050);
+        const m1=gerarVelas(1.100000,30,0.000020);
+        const m5=gerarVelas(1.100000,30,0.000050);
 
-  document.getElementById("m1").value=JSON.stringify(m1);
-  document.getElementById("m5").value=JSON.stringify(m5);
+        document.getElementById("m1").value=JSON.stringify(m1);
+        document.getElementById("m5").value=JSON.stringify(m5);
 
-  document.getElementById("testeStatus").textContent=
-   "TESTE FUNCIONANDO - DADOS SIMULADOS";
+        document.getElementById("testeStatus").textContent=
+            "TESTE FUNCIONANDO - DADOS SIMULADOS";
 
-  document.getElementById("testeStatus").className="ok";
+        document.getElementById("testeStatus").className="ok";
 
-  document.getElementById("testeM1").textContent=
-   "Velas M1: "+m1.length;
+        document.getElementById("testeM1").textContent=
+            "Velas M1: "+m1.length;
 
-  document.getElementById("testeM5").textContent=
-   "Velas M5: "+m5.length;
+        document.getElementById("testeM5").textContent=
+            "Velas M5: "+m5.length;
 
-  document.getElementById("status").textContent=
-   "DADOS DE TESTE CARREGADOS";
+        document.getElementById("status").textContent=
+            "DADOS DE TESTE CARREGADOS";
 
-  analisar();
+        analisar();
 
- }catch(erro){
+    }catch(erro){
 
-  document.getElementById("testeStatus").textContent=
-   "ERRO: "+erro.message;
+        document.getElementById("testeStatus").textContent=
+            "ERRO: "+erro.message;
 
- }
+    }
 
 }
 
-/* =====================================
-   MOTOR DE ANALISE
-===================================== */
+
+/* MOTOR DE ANÁLISE
+   Regras de sinais preservadas do arquivo enviado.
+*/
 
 function analisar(){
 
- try{
+    try{
 
-  const m1=JSON.parse(document.getElementById("m1").value);
-  const m5=JSON.parse(document.getElementById("m5").value);
+        const m1=JSON.parse(document.getElementById("m1").value);
+        const m5=JSON.parse(document.getElementById("m5").value);
 
-  if(!validarVelas(m1)||!validarVelas(m5)){
-   throw new Error("Insira pelo menos 22 velas válidas em M1 e M5.");
-  }
+        if(!validarVelas(m1)||!validarVelas(m5)){
+            throw new Error("Insira pelo menos 22 velas válidas em M1 e M5.");
+        }
 
-  const fechamentos=m1.map(v=>Number(v.close));
-  const fechamentos5=m5.map(v=>Number(v.close));
-
-  const e9=emaSeries(fechamentos,9);
-  const e21=emaSeries(fechamentos,21);
-  const rsi=rsiSeries(fechamentos,14);
-
-  const e9m5=emaSeries(fechamentos5,9);
-  const e21m5=emaSeries(fechamentos5,21);
-
-  const ultimo5=m5.length-2;
-
-  const fechamento5=fechamentos5[ultimo5];
-
-  const tendenciaCall=
-   fechamento5>e21m5[ultimo5] &&
-   e21m5[ultimo5]>e21m5[ultimo5-1];
-
-  const tendenciaPut=
-   fechamento5<e21m5[ultimo5] &&
-   e21m5[ultimo5]<e21m5[ultimo5-1];
+        const fechamentos=m1.map(v=>Number(v.close));
+        const fechamentos5=m5.map(v=>Number(v.close));
 
-  const distanciaMedias=
-   Math.abs(e9m5[ultimo5]-e21m5[ultimo5]);
+        const e9=emaSeries(fechamentos,9);
+        const e21=emaSeries(fechamentos,21);
+        const rsi=rsiSeries(fechamentos,14);
+
+        const e9m5=emaSeries(fechamentos5,9);
+        const e21m5=emaSeries(fechamentos5,21);
+
+        /* Agora usa a última M5 completa.
+           Não pula uma vela e não usa M5 em formação. */
+
+        const ultimo5=m5.length-1;
+
+        const fechamento5=fechamentos5[ultimo5];
+
+        const tendenciaCall=
+            fechamento5>e21m5[ultimo5] &&
+            e21m5[ultimo5]>e21m5[ultimo5-1];
+
+        const tendenciaPut=
+            fechamento5<e21m5[ultimo5] &&
+            e21m5[ultimo5]<e21m5[ultimo5-1];
 
-  const inclinacaoEma=
-   Math.abs(e21m5[ultimo5]-e21m5[ultimo5-2]);
+        const distanciaMedias=
+            Math.abs(e9m5[ultimo5]-e21m5[ultimo5]);
 
-  const mercadoLateral=
-   distanciaMedias<fechamento5*0.00035 &&
-   inclinacaoEma<fechamento5*0.00025;
+        const inclinacaoEma=
+            Math.abs(e21m5[ultimo5]-e21m5[ultimo5-2]);
 
-  let callRestante=0;
-  let putRestante=0;
-  let novoCallRestante=0;
-  let novoPutRestante=0;
+        const mercadoLateral=
+            distanciaMedias<fechamento5*0.00035 &&
+            inclinacaoEma<fechamento5*0.00025;
 
-  const sinais=[];
+        let callRestante=0;
+        let putRestante=0;
+        let novoCallRestante=0;
+        let novoPutRestante=0;
 
-  for(let i=0;i<m1.length;i++){
+        const sinais=[];
 
-   if(rsi[i]===null)continue;
+        for(let i=0;i<m1.length;i++){
 
-   const abertura=Number(m1[i].open);
-   const fechamento=Number(m1[i].close);
+            if(rsi[i]===null) continue;
 
-   const callForte=
-    tendenciaCall &&
-    fechamento>abertura &&
-    fechamento>e9[i] &&
-    e9[i]>e21[i] &&
-    rsi[i]>52;
+            const abertura=Number(m1[i].open);
+            const fechamento=Number(m1[i].close);
 
-   const putForte=
-    tendenciaPut &&
-    fechamento<abertura &&
-    fechamento<e9[i] &&
-    e9[i]<e21[i] &&
-    rsi[i]<48;
+            const callForte=
+                tendenciaCall &&
+                fechamento>abertura &&
+                fechamento>e9[i] &&
+                e9[i]>e21[i] &&
+                rsi[i]>52;
 
-   const preCallBruto=
-    tendenciaCall &&
-    e9[i]>e21[i] &&
-    rsi[i]>=45 &&
-    rsi[i]<=52 &&
-    !callForte;
+            const putForte=
+                tendenciaPut &&
+                fechamento<abertura &&
+                fechamento<e9[i] &&
+                e9[i]<e21[i] &&
+                rsi[i]<48;
 
-   const prePutBruto=
-    tendenciaPut &&
-    e9[i]<e21[i] &&
-    rsi[i]>=48 &&
-    rsi[i]<=55 &&
-    !putForte;
+            const preCallBruto=
+                tendenciaCall &&
+                e9[i]>e21[i] &&
+                rsi[i]>=45 &&
+                rsi[i]<=52 &&
+                !callForte;
 
-   const preCall=
-    preCallBruto && callRestante<=0;
+            const prePutBruto=
+                tendenciaPut &&
+                e9[i]<e21[i] &&
+                rsi[i]>=48 &&
+                rsi[i]<=55 &&
+                !putForte;
 
-   const prePut=
-    prePutBruto && putRestante<=0;
+            const preCall=
+                preCallBruto && callRestante<=0;
 
-   if(preCall)callRestante=3;
-   else if(callRestante>0)callRestante--;
+            const prePut=
+                prePutBruto && putRestante<=0;
 
-   if(prePut)putRestante=3;
-   else if(putRestante>0)putRestante--;
+            if(preCall) callRestante=3;
+            else if(callRestante>0) callRestante--;
 
-   const novoPrePutBruto=
-    tendenciaPut &&
-    !mercadoLateral &&
-    e9[i]<e21[i] &&
-    fechamento<e21[i] &&
-    fechamento>abertura &&
-    rsi[i]>40 &&
-    rsi[i]<55 &&
-    !putForte;
+            if(prePut) putRestante=3;
+            else if(putRestante>0) putRestante--;
 
-   const novoPreCallBruto=
-    tendenciaCall &&
-    !mercadoLateral &&
-    e9[i]>e21[i] &&
-    fechamento>e21[i] &&
-    fechamento<abertura &&
-    rsi[i]>45 &&
-    rsi[i]<60 &&
-    !callForte;
+            const novoPrePutBruto=
+                tendenciaPut &&
+                !mercadoLateral &&
+                e9[i]<e21[i] &&
+                fechamento<e21[i] &&
+                fechamento>abertura &&
+                rsi[i]>40 &&
+                rsi[i]<55 &&
+                !putForte;
 
-   const novoPreCall=
-    novoPreCallBruto && novoCallRestante<=0;
+            const novoPreCallBruto=
+                tendenciaCall &&
+                !mercadoLateral &&
+                e9[i]>e21[i] &&
+                fechamento>e21[i] &&
+                fechamento<abertura &&
+                rsi[i]>45 &&
+                rsi[i]<60 &&
+                !callForte;
 
-   const novoPrePut=
-    novoPrePutBruto && novoPutRestante<=0;
+            const novoPreCall=
+                novoPreCallBruto && novoCallRestante<=0;
 
-   if(novoPreCall)novoCallRestante=5;
-   else if(novoCallRestante>0)novoCallRestante--;
+            const novoPrePut=
+                novoPrePutBruto && novoPutRestante<=0;
 
-   if(novoPrePut)novoPutRestante=5;
-   else if(novoPutRestante>0)novoPutRestante--;
+            if(novoPreCall) novoCallRestante=5;
+            else if(novoCallRestante>0) novoCallRestante--;
 
-   if(callForte)
-    sinais.push({tipo:"CALL CONFIRMADO",classe:"verde",vela:i+1});
+            if(novoPrePut) novoPutRestante=5;
+            else if(novoPutRestante>0) novoPutRestante--;
 
-   if(putForte)
-    sinais.push({tipo:"PUT CONFIRMADO",classe:"vermelho",vela:i+1});
+            if(callForte)
+                sinais.push({tipo:"CALL CONFIRMADO",classe:"verde",vela:i+1});
 
-   if(preCall)
-    sinais.push({tipo:"PRÉ-CALL ORIGINAL",classe:"azul",vela:i+1});
+            if(putForte)
+                sinais.push({tipo:"PUT CONFIRMADO",classe:"vermelho",vela:i+1});
 
-   if(prePut)
-    sinais.push({tipo:"PRÉ-PUT ORIGINAL",classe:"roxo",vela:i+1});
+            if(preCall)
+                sinais.push({tipo:"PRÉ-CALL ORIGINAL",classe:"azul",vela:i+1});
 
-   if(novoPreCall)
-    sinais.push({tipo:"PRÉ-CALL ESTRATÉGICO",classe:"verde",vela:i+1});
+            if(prePut)
+                sinais.push({tipo:"PRÉ-PUT ORIGINAL",classe:"roxo",vela:i+1});
 
-   if(novoPrePut)
-    sinais.push({tipo:"PRÉ-PUT ESTRATÉGICO",classe:"vermelho",vela:i+1});
+            if(novoPreCall)
+                sinais.push({tipo:"PRÉ-CALL ESTRATÉGICO",classe:"verde",vela:i+1});
 
-  }
+            if(novoPrePut)
+                sinais.push({tipo:"PRÉ-PUT ESTRATÉGICO",classe:"vermelho",vela:i+1});
 
-  const ultimo=m1.length-1;
+        }
 
-  document.getElementById("ema9").textContent=
-   e9[ultimo].toFixed(6);
+        const ultimo=m1.length-1;
 
-  document.getElementById("ema21").textContent=
-   e21[ultimo].toFixed(6);
+        document.getElementById("ema9").textContent=
+            e9[ultimo].toFixed(6);
 
-  document.getElementById("rsi").textContent=
-   rsi[ultimo]===null?"--":rsi[ultimo].toFixed(2);
+        document.getElementById("ema21").textContent=
+            e21[ultimo].toFixed(6);
 
-  document.getElementById("trend").textContent=
-   tendenciaCall?"TENDÊNCIA DE ALTA":
-   tendenciaPut?"TENDÊNCIA DE BAIXA":
-   "M5 SEM DIREÇÃO";
+        document.getElementById("rsi").textContent=
+            rsi[ultimo]===null?"--":rsi[ultimo].toFixed(2);
 
-  document.getElementById("lateral").textContent=
-   "Mercado lateral: "+(mercadoLateral?"SIM":"NÃO");
+        document.getElementById("trend").textContent=
+            tendenciaCall?"TENDÊNCIA DE ALTA":
+            tendenciaPut?"TENDÊNCIA DE BAIXA":
+            "M5 SEM DIREÇÃO";
 
-  const sinaisAtuais=sinais.filter(s=>s.vela===m1.length);
+        document.getElementById("lateral").textContent=
+            "Mercado lateral: "+(mercadoLateral?"SIM":"NÃO");
 
-  const central=document.getElementById("signal");
-  const detalhes=document.getElementById("details");
+        const sinaisAtuais=sinais.filter(s=>s.vela===m1.length);
 
-  if(sinaisAtuais.length){
+        const central=document.getElementById("signal");
+        const detalhes=document.getElementById("details");
 
-   central.textContent="SINAL IDENTIFICADO";
-   central.className="ok";
+        if(sinaisAtuais.length){
 
-   detalhes.innerHTML=sinaisAtuais.map(s=>
-    '<div class="item '+s.classe+'"><b>'+s.tipo+'</b></div>'
-   ).join("");
+            central.textContent="SINAL IDENTIFICADO";
+            central.className="ok";
 
-  }else{
+            detalhes.innerHTML=sinaisAtuais.map(s=>
+                '<div class="item '+s.classe+'"><b>'+s.tipo+'</b></div>'
+            ).join("");
 
-   central.textContent="AGUARDANDO SINAL";
-   central.className="";
-   detalhes.textContent=
-    "Nenhum sinal identificado na última vela M1.";
+        }else{
 
-  }
+            central.textContent="AGUARDANDO SINAL";
+            central.className="";
+            detalhes.textContent=
+                "Nenhum sinal identificado na última vela M1.";
 
-  const historico=document.getElementById("historico");
+        }
 
-  if(sinais.length){
+        const historico=document.getElementById("historico");
 
-   historico.innerHTML=sinais.slice(-20).reverse().map(s=>
-    '<div class="item '+s.classe+'">'+
-    '<b>'+s.tipo+'</b> - Vela M1 '+s.vela+
-    '</div>'
-   ).join("");
+        if(sinais.length){
 
-  }else{
+            historico.innerHTML=sinais.slice(-20).reverse().map(s=>
+                '<div class="item '+s.classe+'">'+
+                '<b>'+s.tipo+'</b> - Vela M1 '+s.vela+
+                '</div>'
+            ).join("");
 
-   historico.textContent=
-    "Nenhum sinal encontrado nas velas analisadas.";
+        }else{
 
-  }
+            historico.textContent=
+                "Nenhum sinal encontrado nas velas analisadas.";
 
-  document.getElementById("status").textContent=
-   "ANÁLISE CONCLUÍDA";
+        }
 
- }catch(erro){
+        document.getElementById("status").textContent=
+            "ANÁLISE CONCLUÍDA";
 
-  document.getElementById("signal").textContent=
-   "ERRO NA ANÁLISE";
+    }catch(erro){
 
-  document.getElementById("details").textContent=
-   erro.message;
+        document.getElementById("signal").textContent=
+            "ERRO NA ANÁLISE";
 
-  document.getElementById("status").textContent=
-   "VERIFICAR DADOS";
+        document.getElementById("details").textContent=
+            erro.message;
 
- }
+        document.getElementById("status").textContent=
+            "VERIFICAR DADOS";
+
+    }
 
 }
 
